@@ -1,0 +1,39 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: webhooklab
+      POSTGRES_PASSWORD: webhooklab
+      POSTGRES_DB: webhooklab
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U webhooklab"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build: ./backend
+    environment:
+      DATABASE_URL: postgres://webhooklab:webhooklab@postgres:5432/webhooklab?sslmode=disable
+      HTTP_ADDR: ":8080"
+      WEBHOOKLAB_BASE_URL: "http://localhost:8080"
+      WEBHOOKLAB_DEFAULT_TTL: "168h"
+      WEBHOOKLAB_EVENT_CAP: "1000"
+      WEBHOOKLAB_CORS_ORIGINS: "*"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+
+  frontend:
+    build: ./frontend
+    depends_on:
+      - backend
+    ports:
+      - "3000:80"
+
+volumes:
+  pgdata:
