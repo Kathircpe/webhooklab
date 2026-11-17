@@ -26,3 +26,6 @@ export const deleteEvent = (id: string, eventId: string) =>
 
 export const clearEvents = (id: string) =>
   api<void>(`/api/v1/endpoints/${id}/events`, { method: "DELETE" });
+
+export const recentEvents = (limit = 20) =>
+  api<{ items: any[] }>(`/api/v1/events/recent?limit=${limit}`);

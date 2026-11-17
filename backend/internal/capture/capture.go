@@ -1,6 +1,7 @@
 package capture
 
 import (
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -24,9 +25,8 @@ func FromRequest(r *http.Request, endpointID string, maxBody int64, sourceIP str
 		return repository.CapturedEvent{}, err
 	}
 	originalSize := int64(len(body))
-	truncated := originalSize > maxBody
-	if truncated {
-		body = body[:maxBody]
+	if originalSize > maxBody {
+		return repository.CapturedEvent{}, fmt.Errorf("request body too large: %d bytes (limit %d)", originalSize, maxBody)
 	}
 
 	qp := map[string]any{}
@@ -62,7 +62,7 @@ func FromRequest(r *http.Request, endpointID string, maxBody int64, sourceIP str
 		ContentType:   ct,
 		Body:          body,
 		BodySize:      originalSize,
-		BodyTruncated: truncated,
+		BodyTruncated: false,
 		SourceIP:      sip,
 		ReceivedAt:    now,
 	}, nil

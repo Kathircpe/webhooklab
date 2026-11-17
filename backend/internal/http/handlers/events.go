@@ -66,6 +66,21 @@ func (h *EventHandler) Clear(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func (h *EventHandler) Recent(w http.ResponseWriter, r *http.Request) {
+	limit := 20
+	if v := r.URL.Query().Get("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 && n <= 200 {
+			limit = n
+		}
+	}
+	items, err := h.Svc.RecentEvents(r.Context(), limit)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": items})
+}
+
 func (h *EventHandler) Stream(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	fl, ok := w.(http.Flusher)

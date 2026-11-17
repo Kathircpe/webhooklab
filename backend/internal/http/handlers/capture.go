@@ -45,6 +45,10 @@ func (h *CaptureHandler) Handle(w http.ResponseWriter, r *http.Request) {
 	srcIP := capture.ClientIP(r)
 	ev, err := capture.FromRequest(r, ep.ID, h.Svc.Cfg.MaxBodyBytes, srcIP, time.Now())
 	if err != nil {
+		if strings.Contains(err.Error(), "too large") {
+			writeErr(w, http.StatusRequestEntityTooLarge, err.Error())
+			return
+		}
 		writeErr(w, http.StatusBadRequest, "read body failed")
 		return
 	}

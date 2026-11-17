@@ -2,6 +2,10 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { listEndpoints, createEndpoint, deleteEndpoint, updateEndpoint } from "../api/endpoints";
 import type { Endpoint } from "../api/types";
+import CopyButton from "../components/CopyButton";
+import EmptyState from "../components/EmptyState";
+import Skeleton from "../components/Skeleton";
+import StatusBadge from "../components/StatusBadge";
 
 export default function EndpointsPage() {
   const qc = useQueryClient();
@@ -22,40 +26,55 @@ export default function EndpointsPage() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["endpoints"] }),
   });
 
-  const copy = (url: string) => navigator.clipboard.writeText(url);
-
   return (
     <div>
-      <div className="card row">
-        <input placeholder="name (optional)" value={name} onChange={(e) => setName(e.target.value)} />
-        <input placeholder="ttl seconds" value={ttl} onChange={(e) => setTtl(e.target.value)} style={{ width: 120 }} />
-        <button className="primary" onClick={() => createMut.mutate()} disabled={createMut.isPending}>
-          Create endpoint
+      <div className="mb-6 flex flex-col sm:flex-row gap-3 items-stretch sm:items-center">
+        <input className="input flex-1" placeholder="Endpoint name (optional)" value={name} onChange={(e) => setName(e.target.value)} />
+        <input className="input w-32" placeholder="TTL sec" value={ttl} onChange={(e) => setTtl(e.target.value)} />
+        <button className="btn-primary" onClick={() => createMut.mutate()} disabled={createMut.isPending}>
+          {createMut.isPending ? "Creating…" : "Create endpoint"}
         </button>
       </div>
 
-      {isLoading && <p>Loading…</p>}
-      {data?.items.map((ep: Endpoint) => (
-        <div className="card" key={ep.id}>
-          <div className="row" style={{ justifyContent: "space-between" }}>
-            <div>
-              <span className={`badge ${ep.status}`}>{ep.status}</span>
-              <strong style={{ marginLeft: 8 }}>{ep.name || ep.slug}</strong>
-              <div className="muted">{ep.request_count} requests · created {new Date(ep.created_at).toLocaleString()}</div>
-              <div className="mono">{ep.url}</div>
+      {isLoading && (
+        <div className="grid gap-3">
+          {[0, 1, 2].map((i) => <Skeleton key={i} className="h-24" />)}
+        </div>
+      )}
+
+      {!isLoading && data?.items.length === 0 && (
+        <EmptyState title="No endpoints yet" description="Create one above to start capturing webhooks." />
+      )}
+
+      <div className="grid gap-3">
+        {data?.items.map((ep: Endpoint) => (
+          <div key={ep.id} className="card p-4 flex flex-col sm:flex-row sm:items-center gap-4 justify-between">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 mb-1">
+                <StatusBadge status={ep.status} />
+                <span className="font-medium truncate">{ep.name || ep.slug}</span>
+              </div>
+              <div className="text-xs text-gray-500 dark:text-gray-400 mb-2">
+                {ep.request_count} requests · {new Date(ep.created_at).toLocaleString()}
+              </div>
+              <div className="font-mono text-xs text-gray-600 dark:text-gray-300 truncate">{ep.url}</div>
             </div>
-            <div className="row">
-              <button onClick={() => copy(ep.url)}>Copy URL</button>
-              <button onClick={() => toggleMut.mutate({ id: ep.id, enabled: !ep.is_enabled })}>
+            <div className="flex flex-wrap gap-2 shrink-0">
+              <CopyButton value={ep.url} label="Copy URL" />
+              <button className="btn" onClick={() => toggleMut.mutate({ id: ep.id, enabled: !ep.is_enabled })}>
                 {ep.is_enabled ? "Disable" : "Enable"}
               </button>
-              <a href={`/endpoints/${ep.id}`}><button>Details</button></a>
-              <button onClick={() => { if (confirm("Delete?")) deleteMut.mutate(ep.id); }}>Delete</button>
+              <a href={`/endpoints/${ep.id}`} className="btn">Details</a>
+              <button
+                className="btn-danger"
+                onClick={() => { if (confirm("Delete this endpoint and all events?")) deleteMut.mutate(ep.id); }}
+              >
+                Delete
+              </button>
             </div>
           </div>
-        </div>
-      ))}
-      {data && data.items.length === 0 && <p className="muted">No endpoints yet.</p>}
+        ))}
+      </div>
     </div>
   );
 }

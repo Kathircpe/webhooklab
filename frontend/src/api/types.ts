@@ -40,5 +40,18 @@ export type EventDetail = {
 };
 
 export type Page<T> = { items: T[]; total: number; limit: number; offset: number };
+
+export type RecentEvent = {
+  id: string;
+  endpoint_id: string;
+  endpoint_slug: string;
+  endpoint_name: string | null;
+  method: string;
+  path: string;
+  content_type: string | null;
+  body_size: number;
+  source_ip: string | null;
+  received_at: string;
+};
 export type CreateEndpointReq = { name?: string; ttl_seconds?: number };
 export type UpdateEndpointReq = { name?: string; is_enabled?: boolean; expires_at?: string | null; ttl_seconds?: number };

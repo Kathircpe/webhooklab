@@ -15,11 +15,11 @@ import (
 
 type Service struct {
 	Cfg    config.Config
-	Repo   *repository.Repo
+	Repo   repository.Repository
 	Broker *sse.Broker
 }
 
-func New(cfg config.Config, repo *repository.Repo, broker *sse.Broker) *Service {
+func New(cfg config.Config, repo repository.Repository, broker *sse.Broker) *Service {
 	return &Service{Cfg: cfg, Repo: repo, Broker: broker}
 }
 
@@ -189,6 +189,13 @@ func (s *Service) DeleteEvent(ctx context.Context, id string) error {
 
 func (s *Service) ClearEvents(ctx context.Context, endpointID string) error {
 	return s.Repo.DeleteEventsByEndpoint(ctx, endpointID)
+}
+
+func (s *Service) RecentEvents(ctx context.Context, limit int) ([]model.RecentEvent, error) {
+	if limit <= 0 || limit > 200 {
+		limit = 50
+	}
+	return s.Repo.RecentEvents(ctx, limit)
 }
 
 // Worker

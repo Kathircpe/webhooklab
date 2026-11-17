@@ -30,6 +30,19 @@ type EventSummary struct {
 	ReceivedAt  time.Time `json:"received_at"`
 }
 
+type RecentEvent struct {
+	ID           string     `json:"id"`
+	EndpointID   string     `json:"endpoint_id"`
+	EndpointSlug string     `json:"endpoint_slug"`
+	EndpointName *string    `json:"endpoint_name"`
+	Method       string     `json:"method"`
+	Path         string     `json:"path"`
+	ContentType  *string    `json:"content_type"`
+	BodySize     int64      `json:"body_size"`
+	SourceIP     *string    `json:"source_ip"`
+	ReceivedAt   time.Time  `json:"received_at"`
+}
+
 type EventDetail struct {
 	ID            string         `json:"id"`
 	EndpointID    string         `json:"endpoint_id"`

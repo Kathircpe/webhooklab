@@ -11,6 +11,24 @@ import (
 	"webhooklab/internal/model"
 )
 
+type Repository interface {
+	CreateEndpoint(ctx context.Context, slug string, name *string, expiresAt *time.Time) (model.Endpoint, error)
+	GetEndpointByID(ctx context.Context, id string) (model.Endpoint, error)
+	GetEndpointBySlug(ctx context.Context, slug string) (model.Endpoint, error)
+	ListEndpoints(ctx context.Context, limit, offset int, search string) ([]model.Endpoint, int64, error)
+	UpdateEndpoint(ctx context.Context, id string, name *string, isEnabled *bool, expiresAt *time.Time, clearExpiry bool, ttl *int, now time.Time) (model.Endpoint, error)
+	DeleteEndpoint(ctx context.Context, id string) error
+	TouchEndpoint(ctx context.Context, id string, at time.Time) error
+	InsertEvent(ctx context.Context, e CapturedEvent) (string, error)
+	TrimEvents(ctx context.Context, endpointID string, cap int) error
+	ListEvents(ctx context.Context, endpointID string, limit, offset int, method string) ([]model.EventSummary, int64, error)
+	GetEvent(ctx context.Context, id string) (model.EventDetail, error)
+	DeleteEvent(ctx context.Context, id string) error
+	DeleteEventsByEndpoint(ctx context.Context, endpointID string) error
+	PurgeExpired(ctx context.Context, retention time.Duration) (int64, error)
+	RecentEvents(ctx context.Context, limit int) ([]model.RecentEvent, error)
+}
+
 type Repo struct {
 	Pool *pgxpool.Pool
 }
@@ -309,6 +327,32 @@ func (r *Repo) GetEvent(ctx context.Context, id string) (model.EventDetail, erro
 func (r *Repo) DeleteEvent(ctx context.Context, id string) error {
 	_, err := r.Pool.Exec(ctx, `DELETE FROM events WHERE id=$1`, id)
 	return err
+}
+
+func (r *Repo) RecentEvents(ctx context.Context, limit int) ([]model.RecentEvent, error) {
+	rows, err := r.Pool.Query(ctx, `
+		SELECT e.id, e.endpoint_id, ep.slug, ep.name, e.method, e.path, e.content_type, e.body_size, host(e.source_ip), e.received_at
+		FROM events e JOIN endpoints ep ON ep.id = e.endpoint_id
+		ORDER BY e.received_at DESC LIMIT $1`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []model.RecentEvent{}
+	for rows.Next() {
+		var re model.RecentEvent
+		var ct *string
+		var sip *string
+		var name *string
+		if err := rows.Scan(&re.ID, &re.EndpointID, &re.EndpointSlug, &name, &re.Method, &re.Path, &ct, &re.BodySize, &sip, &re.ReceivedAt); err != nil {
+			return nil, err
+		}
+		re.EndpointName = name
+		re.ContentType = ct
+		re.SourceIP = sip
+		out = append(out, re)
+	}
+	return out, rows.Err()
 }
 
 func (r *Repo) DeleteEventsByEndpoint(ctx context.Context, endpointID string) error {

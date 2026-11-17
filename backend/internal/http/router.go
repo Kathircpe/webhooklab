@@ -26,7 +26,10 @@ func NewRouter(cfg config.Config, svc *service.Service, health *handlers.HealthH
 	r.Get("/readyz", health.Readyz)
 
 	r.Route("/api/v1", func(r chi.Router) {
-		r.Route("/endpoints", func(r chi.Router) {
+		r.Route("/events", func(r chi.Router) {
+		r.Get("/recent", evh.Recent)
+	})
+	r.Route("/endpoints", func(r chi.Router) {
 			r.Post("/", eh.Create)
 			r.Get("/", eh.List)
 			r.Get("/{id}", eh.Get)
