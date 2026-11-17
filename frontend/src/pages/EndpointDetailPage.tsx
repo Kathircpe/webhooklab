@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { getEndpoint, listEvents, getEvent, deleteEvent, clearEvents, updateEndpoint } from "../api/endpoints";
-import type { EventSummary } from "../api/types";
+import { getEndpoint, listEvents, getEvent, deleteEvent, clearEvents, updateEndpoint, replayEvent, listReplays } from "../api/endpoints";
+import type { EventSummary, Replay } from "../api/types";
 import MethodBadge from "../components/MethodBadge";
 import StatusBadge from "../components/StatusBadge";
 import CopyButton from "../components/CopyButton";
@@ -20,6 +20,13 @@ export default function EndpointDetailPage() {
   const [search, setSearch] = useState("");
   const [methodFilter, setMethodFilter] = useState("");
   const [pretty, setPretty] = useState(true);
+  const [replayOpen, setReplayOpen] = useState(false);
+  const [destURL, setDestURL] = useState("");
+  const [replayMethod, setReplayMethod] = useState("POST");
+  const [replayHeaders, setReplayHeaders] = useState("{}");
+  const [replayBody, setReplayBody] = useState("");
+  const [replayResult, setReplayResult] = useState<Replay | null>(null);
+  const [replayError, setReplayError] = useState<string | null>(null);
 
   const { data: detail } = useQuery({
     queryKey: ["event", id, selected],
@@ -39,6 +46,47 @@ export default function EndpointDetailPage() {
   const rawBody = detail?.body_text || detail?.body_base64 || "";
   const bodyToShow = pretty && prettyBody ? prettyBody : rawBody;
   const copyText = async (text: string) => { await navigator.clipboard.writeText(text); };
+
+  const { data: replayHistory } = useQuery({
+    queryKey: ["replays", selected],
+    queryFn: () => listReplays(selected!),
+    enabled: !!selected && replayOpen,
+  });
+
+  const replayMut = useMutation({
+    mutationFn: () => {
+      let headers: Record<string, any>;
+      try {
+        headers = JSON.parse(replayHeaders || "{}");
+      } catch {
+        throw new Error("Headers must be valid JSON");
+      }
+      const body = replayBody ? toBase64(replayBody) : undefined;
+      return replayEvent(selected!, {
+        destination_url: destURL,
+        method: replayMethod,
+        headers,
+        body_base64: body,
+      });
+    },
+    onSuccess: (r) => {
+      setReplayResult(r);
+      setReplayError(null);
+      qc.invalidateQueries({ queryKey: ["replays", selected] });
+    },
+    onError: (e: any) => setReplayError(e.message || "Replay failed"),
+  });
+
+  const openReplay = () => {
+    if (!detail) return;
+    setDestURL("");
+    setReplayMethod(detail.method);
+    setReplayHeaders(JSON.stringify(detail.headers, null, 2));
+    setReplayBody(detail.body_text || "");
+    setReplayResult(null);
+    setReplayError(null);
+    setReplayOpen(true);
+  };
 
   useEffect(() => {
     if (!id) return;
@@ -139,6 +187,7 @@ export default function EndpointDetailPage() {
                   <span className="font-mono text-sm">{detail.path}</span>
                 </div>
                 <div className="flex gap-2">
+                  <button className="btn-primary" onClick={openReplay}>Replay</button>
                   <button className="btn" onClick={downloadBody}>Download</button>
                   <button className="btn-danger" onClick={() => { if (confirm("Delete event?")) delMut.mutate(detail.id); }}>Delete</button>
                 </div>
@@ -195,6 +244,96 @@ export default function EndpointDetailPage() {
           )}
         </div>
       </div>
+
+      {replayOpen && detail && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-start justify-center p-4 overflow-auto" onClick={() => setReplayOpen(false)}>
+          <div className="card w-full max-w-3xl p-5 my-8" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold">Replay request</h3>
+              <button className="btn" onClick={() => setReplayOpen(false)}>Close</button>
+            </div>
+
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs text-gray-500">Destination URL</label>
+                <input className="input w-full mt-1" placeholder="https://your-app.example.com/webhook" value={destURL} onChange={(e) => setDestURL(e.target.value)} />
+              </div>
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <label className="text-xs text-gray-500">Method</label>
+                  <select className="input w-full mt-1" value={replayMethod} onChange={(e) => setReplayMethod(e.target.value)}>
+                    {["GET", "POST", "PUT", "PATCH", "DELETE"].map((m) => <option key={m} value={m}>{m}</option>)}
+                  </select>
+                </div>
+                <div className="col-span-2">
+                  <label className="text-xs text-gray-500">Headers (JSON)</label>
+                  <textarea className="input w-full mt-1 font-mono text-xs" rows={5} value={replayHeaders} onChange={(e) => setReplayHeaders(e.target.value)} />
+                </div>
+              </div>
+              <div>
+                <label className="text-xs text-gray-500">Body</label>
+                <textarea className="input w-full mt-1 font-mono text-xs" rows={6} value={replayBody} onChange={(e) => setReplayBody(e.target.value)} placeholder="(uses original body if empty)" />
+              </div>
+              {replayError && <div className="text-sm text-red-600">{replayError}</div>}
+              <div className="flex justify-end">
+                <button className="btn-primary" onClick={() => replayMut.mutate()} disabled={replayMut.isPending || !destURL}>
+                  {replayMut.isPending ? "Sending…" : "Send replay"}
+                </button>
+              </div>
+
+              {replayResult && (
+                <div className="border border-gray-200 dark:border-gray-800 rounded-md p-3 space-y-2">
+                  <div className="flex items-center gap-3">
+                    <span className={`badge ${replayResult.error ? "bg-red-100 text-red-700" : "bg-emerald-100 text-emerald-700"}`}>
+                      {replayResult.error ? "Error" : replayResult.response_status}
+                    </span>
+                    <span className="text-xs text-gray-500">{replayResult.response_duration_ms}ms</span>
+                    <span className="text-xs text-gray-500 font-mono truncate">{replayResult.destination_url}</span>
+                  </div>
+                  {replayResult.error && <div className="text-sm text-red-600">{replayResult.error}</div>}
+                  {!replayResult.error && (
+                    <>
+                      <div className="text-xs text-gray-500">Response headers</div>
+                      <pre className="bg-gray-900 text-gray-100 rounded p-2 text-xs max-h-40 overflow-auto">{JSON.stringify(replayResult.response_headers, null, 2)}</pre>
+                      <div className="text-xs text-gray-500">Response body</div>
+                      <pre className="bg-gray-900 text-gray-100 rounded p-2 text-xs max-h-60 overflow-auto">{replayResult.response_body_text || replayResult.response_body_base64}</pre>
+                    </>
+                  )}
+                </div>
+              )}
+
+              {replayHistory && replayHistory.items.length > 0 && (
+                <div>
+                  <div className="text-xs text-gray-500 mb-2">Replay history</div>
+                  <div className="divide-y divide-gray-100 dark:divide-gray-800 border border-gray-200 dark:border-gray-800 rounded-md">
+                    {replayHistory.items.map((r) => (
+                      <button key={r.id} className="w-full text-left px-3 py-2 text-xs hover:bg-gray-50 dark:hover:bg-gray-800" onClick={() => setReplayResult(r)}>
+                        <span className="font-mono">{new Date(r.created_at).toLocaleString()}</span>
+                        {" · "}
+                        <span>{r.error ? "error" : r.response_status}</span>
+                        {" · "}
+                        <span>{r.response_duration_ms}ms</span>
+                        {" · "}
+                        <span className="font-mono">{r.destination_url}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
+}
+
+function toBase64(text: string) {
+  const bytes = new TextEncoder().encode(text);
+  let binary = "";
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+  }
+  return btoa(binary);
 }

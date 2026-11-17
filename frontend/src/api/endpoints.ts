@@ -29,3 +29,16 @@ export const clearEvents = (id: string) =>
 
 export const recentEvents = (limit = 20) =>
   api<{ items: any[] }>(`/api/v1/events/recent?limit=${limit}`);
+
+export const replayEvent = (eventId: string, body: {
+  destination_url: string;
+  method?: string;
+  headers?: Record<string, any>;
+  body_base64?: string;
+}) => api<import("./types").Replay>(`/api/v1/events/${eventId}/replay`, {
+  method: "POST",
+  body: JSON.stringify(body),
+});
+
+export const listReplays = (eventId: string) =>
+  api<{ items: import("./types").Replay[] }>(`/api/v1/events/${eventId}/replays`);

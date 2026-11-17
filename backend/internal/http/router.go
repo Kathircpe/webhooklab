@@ -21,6 +21,7 @@ func NewRouter(cfg config.Config, svc *service.Service, health *handlers.HealthH
 	eh := &handlers.EndpointHandler{Svc: svc}
 	evh := &handlers.EventHandler{Svc: svc}
 	caph := &handlers.CaptureHandler{Svc: svc}
+	rh := &handlers.ReplayHandler{Svc: svc}
 
 	r.Get("/healthz", health.Healthz)
 	r.Get("/readyz", health.Readyz)
@@ -28,6 +29,8 @@ func NewRouter(cfg config.Config, svc *service.Service, health *handlers.HealthH
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Route("/events", func(r chi.Router) {
 		r.Get("/recent", evh.Recent)
+		r.Post("/{eventId}/replay", rh.Send)
+		r.Get("/{eventId}/replays", rh.List)
 	})
 	r.Route("/endpoints", func(r chi.Router) {
 			r.Post("/", eh.Create)

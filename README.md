@@ -11,6 +11,9 @@ Stack: Go (chi + pgx) backend, React + TypeScript (Vite) frontend, PostgreSQL.
 - Per-endpoint event cap (default 1000) to bound storage.
 - Captures method, headers (JSONB), body (raw bytes), query params (JSONB), content type, source IP, timestamp, size, path.
 - Live updates via Server-Sent Events.
+- Replay captured requests to any destination URL with editable method, headers, and body.
+- Replay history with response status, headers, body, and duration.
+- SSRF protection: private/loopback/link-local/metadata destinations are blocked by default.
 - Single `docker compose up` to run.
 
 ## Architecture
@@ -58,6 +61,9 @@ Dashboard at http://localhost:5173 (proxies /api and /w to backend).
 | WEBHOOKLAB_EVENT_CAP | 1000 | Max events per endpoint (0 = unlimited) |
 | WEBHOOKLAB_CORS_ORIGINS | * | Comma-separated allowed origins |
 | WEBHOOKLAB_TRUSTED_PROXIES | (none) | (reserved) |
+| WEBHOOKLAB_REPLAY_TIMEOUT | 10s | Outbound replay timeout |
+| WEBHOOKLAB_REPLAY_MAX_RESPONSE_BYTES | 1048576 | Max stored replay response body |
+| WEBHOOKLAB_REPLAY_ALLOW_PRIVATE | false | Allow replays to private/loopback hosts (dev only; metadata is always blocked) |
 
 ## API (top-level)
 Management under `/api/v1/endpoints`; capture under `/w/{slug}`; health at `/healthz`, `/readyz`.

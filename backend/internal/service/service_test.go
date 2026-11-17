@@ -2,7 +2,11 @@ package service
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -15,11 +19,12 @@ import (
 type fakeRepo struct {
 	endpoints map[string]model.Endpoint
 	events    map[string][]repository.CapturedEvent
+	details   map[string]model.EventDetail
 	nextID    int
 }
 
 func newFakeRepo() *fakeRepo {
-	return &fakeRepo{endpoints: map[string]model.Endpoint{}, events: map[string][]repository.CapturedEvent{}}
+	return &fakeRepo{endpoints: map[string]model.Endpoint{}, events: map[string][]repository.CapturedEvent{}, details: map[string]model.EventDetail{}}
 }
 
 func (f *fakeRepo) CreateEndpoint(ctx context.Context, slug string, name *string, expiresAt *time.Time) (model.Endpoint, error) {
@@ -84,6 +89,17 @@ func (f *fakeRepo) InsertEvent(ctx context.Context, e repository.CapturedEvent) 
 	f.nextID++
 	id := "ev" + itoa(f.nextID)
 	f.events[e.EndpointID] = append(f.events[e.EndpointID], e)
+	f.details[id] = model.EventDetail{
+		ID:          id,
+		EndpointID:  e.EndpointID,
+		Method:      e.Method,
+		Path:        e.Path,
+		Headers:     e.Headers,
+		BodyBase64:  base64.StdEncoding.EncodeToString(e.Body),
+		BodyText:    strPtrOrNil(string(e.Body)),
+		BodySize:    e.BodySize,
+		ReceivedAt:  e.ReceivedAt,
+	}
 	return id, nil
 }
 func (f *fakeRepo) TrimEvents(ctx context.Context, endpointID string, cap int) error { return nil }
@@ -91,7 +107,11 @@ func (f *fakeRepo) ListEvents(ctx context.Context, endpointID string, limit, off
 	return nil, 0, nil
 }
 func (f *fakeRepo) GetEvent(ctx context.Context, id string) (model.EventDetail, error) {
-	return model.EventDetail{}, errors.New("not found")
+	ed, ok := f.details[id]
+	if !ok {
+		return model.EventDetail{}, errors.New("not found")
+	}
+	return ed, nil
 }
 func (f *fakeRepo) UpdateEventDuration(ctx context.Context, id string, ms int64) error { return nil }
 func (f *fakeRepo) DeleteEvent(ctx context.Context, id string) error                   { return nil }
@@ -104,6 +124,33 @@ func (f *fakeRepo) PurgeExpired(ctx context.Context, retention time.Duration) (i
 }
 func (f *fakeRepo) RecentEvents(ctx context.Context, limit int) ([]model.RecentEvent, error) {
 	return nil, nil
+}
+func (f *fakeRepo) InsertReplay(ctx context.Context, eventID, destinationURL, method string, reqHeaders map[string]any, reqBody []byte, status *int, respHeaders map[string]any, respBody []byte, durationMS int64, errMsg *string) (model.Replay, error) {
+	rep := model.Replay{
+		ID:                 "rep",
+		EventID:            eventID,
+		DestinationURL:     destinationURL,
+		Method:             method,
+		RequestHeaders:     reqHeaders,
+		RequestBodyBase64:  base64.StdEncoding.EncodeToString(reqBody),
+		ResponseStatus:     status,
+		ResponseHeaders:    respHeaders,
+		ResponseBodyBase64: base64.StdEncoding.EncodeToString(respBody),
+		ResponseDurationMS: durationMS,
+		Error:              errMsg,
+		CreatedAt:          time.Now(),
+	}
+	if len(respBody) > 0 {
+		s := string(respBody)
+		rep.ResponseBodyText = &s
+	}
+	return rep, nil
+}
+func (f *fakeRepo) ListReplaysByEvent(ctx context.Context, eventID string) ([]model.Replay, error) {
+	return nil, nil
+}
+func (f *fakeRepo) GetReplay(ctx context.Context, id string) (model.Replay, error) {
+	return model.Replay{}, nil
 }
 
 func itoa(n int) string {
@@ -155,5 +202,67 @@ func TestCaptureDisabledAndExpired(t *testing.T) {
 	}
 }
 
+func TestReplayEventSuccess(t *testing.T) {
+	var gotBody string
+	var gotHeader string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		gotBody = string(b)
+		gotHeader = r.Header.Get("X-Test")
+		w.Header().Set("X-Reply", "ok")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"ok":true}`))
+	}))
+	defer srv.Close()
+
+	repo := newFakeRepo()
+	svc := New(config.Config{
+		BaseURL:            "http://localhost",
+		DefaultTTL:         time.Hour,
+		EventCap:           10,
+		ReplayTimeout:      2 * time.Second,
+		ReplayMaxResponse:  1024,
+		ReplayAllowPrivate: true,
+	}, repo, sse.New())
+
+	ep, _ := svc.CreateEndpoint(context.Background(), model.CreateEndpointReq{})
+	id, _ := repo.InsertEvent(context.Background(), repository.CapturedEvent{
+		EndpointID:  ep.ID,
+		Method:      "POST",
+		Path:        "/x",
+		Headers:     map[string]any{"X-Test": []string{"yes"}, "Content-Type": []string{"application/json"}},
+		Body:        []byte(`{"hello":1}`),
+		BodySize:    11,
+		ReceivedAt:  time.Now(),
+	})
+
+	rep, err := svc.ReplayEvent(context.Background(), id, model.ReplayRequest{DestinationURL: srv.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep.ResponseStatus == nil || *rep.ResponseStatus != 200 {
+		msg := ""
+		if rep.Error != nil {
+			msg = *rep.Error
+		}
+		t.Fatalf("status = %v error = %s", rep.ResponseStatus, msg)
+	}
+	if gotBody != `{"hello":1}` {
+		t.Fatalf("body = %s", gotBody)
+	}
+	if gotHeader != "yes" {
+		t.Fatalf("header = %s", gotHeader)
+	}
+	if rep.ResponseBodyText == nil || *rep.ResponseBodyText != `{"ok":true}` {
+		t.Fatalf("resp body = %v", rep.ResponseBodyText)
+	}
+}
+
 func ptr(s string) *string { return &s }
 func boolPtr(b bool) *bool { return &b }
+func strPtrOrNil(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
+}
