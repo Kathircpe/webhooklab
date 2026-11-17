@@ -1,0 +1,62 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: webhooklab
+      POSTGRES_PASSWORD: webhooklab
+      POSTGRES_DB: webhooklab
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata-dev:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U webhooklab"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.dev
+    volumes:
+      - ./backend:/src
+      - go-mod-cache:/go/pkg/mod
+      - go-build-cache:/root/.cache/go-build
+    working_dir: /src
+    environment:
+      DATABASE_URL: postgres://webhooklab:webhooklab@postgres:5432/webhooklab?sslmode=disable
+      HTTP_ADDR: ":8080"
+      WEBHOOKLAB_BASE_URL: "http://localhost:8080"
+      WEBHOOKLAB_DEFAULT_TTL: "168h"
+      WEBHOOKLAB_MAX_BODY_BYTES: "1048576"
+      WEBHOOKLAB_CLEANUP_INTERVAL: "1h"
+      WEBHOOKLAB_EXPIRED_RETENTION: "720h"
+      WEBHOOKLAB_EVENT_CAP: "1000"
+      WEBHOOKLAB_CORS_ORIGINS: "http://localhost:5173"
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+    volumes:
+      - ./frontend:/app
+      - frontend-node-modules:/app/node_modules
+    working_dir: /app
+    environment:
+      VITE_PROXY_TARGET: "http://backend:8080"
+    ports:
+      - "5173:5173"
+    depends_on:
+      - backend
+
+volumes:
+  pgdata-dev:
+  go-mod-cache:
+  go-build-cache:
+  frontend-node-modules:
