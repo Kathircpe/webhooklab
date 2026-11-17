@@ -1,0 +1,1 @@
+ALTER TABLE events ADD COLUMN IF NOT EXISTS processing_duration_ms BIGINT NOT NULL DEFAULT 0;

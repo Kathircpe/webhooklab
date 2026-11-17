@@ -23,10 +23,14 @@ type Repository interface {
 	TrimEvents(ctx context.Context, endpointID string, cap int) error
 	ListEvents(ctx context.Context, endpointID string, limit, offset int, method string) ([]model.EventSummary, int64, error)
 	GetEvent(ctx context.Context, id string) (model.EventDetail, error)
+	UpdateEventDuration(ctx context.Context, id string, ms int64) error
 	DeleteEvent(ctx context.Context, id string) error
 	DeleteEventsByEndpoint(ctx context.Context, endpointID string) error
 	PurgeExpired(ctx context.Context, retention time.Duration) (int64, error)
 	RecentEvents(ctx context.Context, limit int) ([]model.RecentEvent, error)
+	InsertReplay(ctx context.Context, eventID, destinationURL, method string, reqHeaders map[string]any, reqBody []byte, status *int, respHeaders map[string]any, respBody []byte, durationMS int64, errMsg *string) (model.Replay, error)
+	ListReplaysByEvent(ctx context.Context, eventID string) ([]model.Replay, error)
+	GetReplay(ctx context.Context, id string) (model.Replay, error)
 }
 
 type Repo struct {
@@ -255,7 +259,7 @@ func (r *Repo) ListEvents(ctx context.Context, endpointID string, limit, offset 
 	idx := len(args) + 1
 	args = append(args, limit, offset)
 	rows, err := r.Pool.Query(ctx, `
-		SELECT id, method, path, content_type, body_size, host(source_ip), received_at
+		SELECT id, method, path, content_type, body_size, host(source_ip), received_at, processing_duration_ms
 		FROM events `+where+` ORDER BY received_at DESC LIMIT $`+itoa(idx)+` OFFSET $`+itoa(idx+1), args...)
 	if err != nil {
 		return nil, 0, err
@@ -266,7 +270,7 @@ func (r *Repo) ListEvents(ctx context.Context, endpointID string, limit, offset 
 		var es model.EventSummary
 		var ct *string
 		var sip *string
-		if err := rows.Scan(&es.ID, &es.Method, &es.Path, &ct, &es.BodySize, &sip, &es.ReceivedAt); err != nil {
+		if err := rows.Scan(&es.ID, &es.Method, &es.Path, &ct, &es.BodySize, &sip, &es.ReceivedAt, &es.DurationMS); err != nil {
 			return nil, 0, err
 		}
 		es.ContentType = ct
@@ -284,10 +288,10 @@ func (r *Repo) GetEvent(ctx context.Context, id string) (model.EventDetail, erro
 	var body []byte
 	var truncated bool
 	row := r.Pool.QueryRow(ctx, `
-		SELECT id, endpoint_id, method, path, raw_query, query_params, headers, content_type, body, body_size, body_truncated, host(source_ip), received_at
+		SELECT id, endpoint_id, method, path, raw_query, query_params, headers, content_type, body, body_size, body_truncated, host(source_ip), received_at, processing_duration_ms
 		FROM events WHERE id=$1`, id)
 	var rawQuery string
-	if err := row.Scan(&ed.ID, &ed.EndpointID, &ed.Method, &ed.Path, &rawQuery, &qp, &hd, &ct, &body, &ed.BodySize, &truncated, &sip, &ed.ReceivedAt); err != nil {
+	if err := row.Scan(&ed.ID, &ed.EndpointID, &ed.Method, &ed.Path, &rawQuery, &qp, &hd, &ct, &body, &ed.BodySize, &truncated, &sip, &ed.ReceivedAt, &ed.DurationMS); err != nil {
 		return ed, err
 	}
 	ed.RawQuery = rawQuery
@@ -324,6 +328,11 @@ func (r *Repo) GetEvent(ctx context.Context, id string) (model.EventDetail, erro
 	return ed, nil
 }
 
+func (r *Repo) UpdateEventDuration(ctx context.Context, id string, ms int64) error {
+	_, err := r.Pool.Exec(ctx, `UPDATE events SET processing_duration_ms=$2 WHERE id=$1`, id, ms)
+	return err
+}
+
 func (r *Repo) DeleteEvent(ctx context.Context, id string) error {
 	_, err := r.Pool.Exec(ctx, `DELETE FROM events WHERE id=$1`, id)
 	return err
@@ -331,7 +340,7 @@ func (r *Repo) DeleteEvent(ctx context.Context, id string) error {
 
 func (r *Repo) RecentEvents(ctx context.Context, limit int) ([]model.RecentEvent, error) {
 	rows, err := r.Pool.Query(ctx, `
-		SELECT e.id, e.endpoint_id, ep.slug, ep.name, e.method, e.path, e.content_type, e.body_size, host(e.source_ip), e.received_at
+		SELECT e.id, e.endpoint_id, ep.slug, ep.name, e.method, e.path, e.content_type, e.body_size, host(e.source_ip), e.received_at, e.processing_duration_ms
 		FROM events e JOIN endpoints ep ON ep.id = e.endpoint_id
 		ORDER BY e.received_at DESC LIMIT $1`, limit)
 	if err != nil {
@@ -344,7 +353,7 @@ func (r *Repo) RecentEvents(ctx context.Context, limit int) ([]model.RecentEvent
 		var ct *string
 		var sip *string
 		var name *string
-		if err := rows.Scan(&re.ID, &re.EndpointID, &re.EndpointSlug, &name, &re.Method, &re.Path, &ct, &re.BodySize, &sip, &re.ReceivedAt); err != nil {
+		if err := rows.Scan(&re.ID, &re.EndpointID, &re.EndpointSlug, &name, &re.Method, &re.Path, &ct, &re.BodySize, &sip, &re.ReceivedAt, &re.DurationMS); err != nil {
 			return nil, err
 		}
 		re.EndpointName = name
@@ -353,6 +362,79 @@ func (r *Repo) RecentEvents(ctx context.Context, limit int) ([]model.RecentEvent
 		out = append(out, re)
 	}
 	return out, rows.Err()
+}
+
+func (r *Repo) InsertReplay(ctx context.Context, eventID, destinationURL, method string, reqHeaders map[string]any, reqBody []byte, status *int, respHeaders map[string]any, respBody []byte, durationMS int64, errMsg *string) (model.Replay, error) {
+	rh, _ := json.Marshal(reqHeaders)
+	resph, _ := json.Marshal(respHeaders)
+	var id string
+	err := r.Pool.QueryRow(ctx, `
+		INSERT INTO replays (event_id, destination_url, method, request_headers, request_body, response_status, response_headers, response_body, response_duration_ms, error)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id`,
+		eventID, destinationURL, method, rh, reqBody, status, resph, respBody, durationMS, errMsg).Scan(&id)
+	if err != nil {
+		return model.Replay{}, err
+	}
+	return r.GetReplay(ctx, id)
+}
+
+func (r *Repo) scanReplay(row pgx.Row) (model.Replay, error) {
+	var rep model.Replay
+	var rh, resph, reqBody, respBody []byte
+	var status *int
+	var errMsg *string
+	if err := row.Scan(&rep.ID, &rep.EventID, &rep.DestinationURL, &rep.Method, &rh, &reqBody, &status, &resph, &respBody, &rep.ResponseDurationMS, &errMsg, &rep.CreatedAt); err != nil {
+		return rep, err
+	}
+	rep.ResponseStatus = status
+	rep.Error = errMsg
+	var rm, resm map[string]any
+	if len(rh) > 0 {
+		json.Unmarshal(rh, &rm)
+	}
+	if len(resph) > 0 {
+		json.Unmarshal(resph, &resm)
+	}
+	if rm == nil {
+		rm = map[string]any{}
+	}
+	if resm == nil {
+		resm = map[string]any{}
+	}
+	rep.RequestHeaders = rm
+	rep.ResponseHeaders = resm
+	rep.RequestBodyBase64 = base64Std(reqBody)
+	rep.ResponseBodyBase64 = base64Std(respBody)
+	if len(respBody) > 0 && isValidUTF8(respBody) {
+		s := string(respBody)
+		rep.ResponseBodyText = &s
+	}
+	return rep, nil
+}
+
+func (r *Repo) ListReplaysByEvent(ctx context.Context, eventID string) ([]model.Replay, error) {
+	rows, err := r.Pool.Query(ctx, `
+		SELECT id, event_id, destination_url, method, request_headers, request_body, response_status, response_headers, response_body, response_duration_ms, error, created_at
+		FROM replays WHERE event_id=$1 ORDER BY created_at DESC`, eventID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []model.Replay{}
+	for rows.Next() {
+		rep, err := r.scanReplay(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, rep)
+	}
+	return out, rows.Err()
+}
+
+func (r *Repo) GetReplay(ctx context.Context, id string) (model.Replay, error) {
+	return r.scanReplay(r.Pool.QueryRow(ctx, `
+		SELECT id, event_id, destination_url, method, request_headers, request_body, response_status, response_headers, response_body, response_duration_ms, error, created_at
+		FROM replays WHERE id=$1`, id))
 }
 
 func (r *Repo) DeleteEventsByEndpoint(ctx context.Context, endpointID string) error {

@@ -20,6 +20,7 @@ export type EventSummary = {
   body_size: number;
   source_ip: string | null;
   received_at: string;
+  processing_duration_ms: number;
 };
 
 export type EventDetail = {
@@ -37,6 +38,7 @@ export type EventDetail = {
   body_size: number;
   source_ip: string | null;
   received_at: string;
+  processing_duration_ms: number;
 };
 
 export type Page<T> = { items: T[]; total: number; limit: number; offset: number };
@@ -52,6 +54,7 @@ export type RecentEvent = {
   body_size: number;
   source_ip: string | null;
   received_at: string;
+  processing_duration_ms: number;
 };
 export type CreateEndpointReq = { name?: string; ttl_seconds?: number };
 export type UpdateEndpointReq = { name?: string; is_enabled?: boolean; expires_at?: string | null; ttl_seconds?: number };

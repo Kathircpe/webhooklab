@@ -183,6 +183,10 @@ func (s *Service) GetEvent(ctx context.Context, id string) (model.EventDetail, e
 	return ed, nil
 }
 
+func (s *Service) SetEventDuration(ctx context.Context, id string, ms int64) error {
+	return s.Repo.UpdateEventDuration(ctx, id, ms)
+}
+
 func (s *Service) DeleteEvent(ctx context.Context, id string) error {
 	return s.Repo.DeleteEvent(ctx, id)
 }

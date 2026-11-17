@@ -28,6 +28,7 @@ type EventSummary struct {
 	BodySize    int64     `json:"body_size"`
 	SourceIP    *string   `json:"source_ip"`
 	ReceivedAt  time.Time `json:"received_at"`
+	DurationMS  int64     `json:"processing_duration_ms"`
 }
 
 type RecentEvent struct {
@@ -41,6 +42,7 @@ type RecentEvent struct {
 	BodySize     int64      `json:"body_size"`
 	SourceIP     *string    `json:"source_ip"`
 	ReceivedAt   time.Time  `json:"received_at"`
+	DurationMS   int64      `json:"processing_duration_ms"`
 }
 
 type EventDetail struct {
@@ -58,6 +60,7 @@ type EventDetail struct {
 	BodySize      int64          `json:"body_size"`
 	SourceIP      *string        `json:"source_ip"`
 	ReceivedAt    time.Time      `json:"received_at"`
+	DurationMS    int64          `json:"processing_duration_ms"`
 }
 
 type CreateEndpointReq struct {
@@ -108,6 +111,29 @@ func (u *UpdateEndpointReq) UnmarshalJSON(b []byte) error {
 		}
 	}
 	return nil
+}
+
+type ReplayRequest struct {
+	DestinationURL string         `json:"destination_url"`
+	Method         *string        `json:"method"`
+	Headers        map[string]any `json:"headers"`
+	BodyBase64     *string        `json:"body_base64"`
+}
+
+type Replay struct {
+	ID                 string         `json:"id"`
+	EventID            string         `json:"event_id"`
+	DestinationURL     string         `json:"destination_url"`
+	Method             string         `json:"method"`
+	RequestHeaders     map[string]any `json:"request_headers"`
+	RequestBodyBase64  string         `json:"request_body_base64"`
+	ResponseStatus     *int           `json:"response_status"`
+	ResponseHeaders    map[string]any `json:"response_headers"`
+	ResponseBodyBase64 string         `json:"response_body_base64"`
+	ResponseBodyText   *string        `json:"response_body_text"`
+	ResponseDurationMS int64          `json:"response_duration_ms"`
+	Error              *string        `json:"error"`
+	CreatedAt          time.Time      `json:"created_at"`
 }
 
 type Page struct {

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { getEndpoint, listEvents, getEvent, deleteEvent, clearEvents, updateEndpoint } from "../api/endpoints";
@@ -19,12 +19,26 @@ export default function EndpointDetailPage() {
   const [tab, setTab] = useState<"body" | "headers" | "query">("body");
   const [search, setSearch] = useState("");
   const [methodFilter, setMethodFilter] = useState("");
+  const [pretty, setPretty] = useState(true);
 
   const { data: detail } = useQuery({
     queryKey: ["event", id, selected],
     queryFn: () => getEvent(id!, selected!),
     enabled: !!selected,
   });
+
+  const prettyBody = useMemo(() => {
+    if (!detail?.body_text) return null;
+    try {
+      return JSON.stringify(JSON.parse(detail.body_text), null, 2);
+    } catch {
+      return null;
+    }
+  }, [detail]);
+
+  const rawBody = detail?.body_text || detail?.body_base64 || "";
+  const bodyToShow = pretty && prettyBody ? prettyBody : rawBody;
+  const copyText = async (text: string) => { await navigator.clipboard.writeText(text); };
 
   useEffect(() => {
     if (!id) return;
@@ -109,7 +123,7 @@ export default function EndpointDetailPage() {
                   <span className="text-xs text-gray-400">{new Date(e.received_at).toLocaleTimeString()}</span>
                 </div>
                 <div className="text-xs font-mono text-gray-600 dark:text-gray-300 truncate mt-1">{e.path}</div>
-                <div className="text-xs text-gray-400 mt-0.5">{e.content_type || "-"} · {e.body_size}B</div>
+                <div className="text-xs text-gray-400 mt-0.5">{e.content_type || "-"} · {e.body_size}B · {e.processing_duration_ms}ms</div>
               </button>
             ))}
           </div>
@@ -130,7 +144,7 @@ export default function EndpointDetailPage() {
                 </div>
               </div>
               <div className="text-xs text-gray-500">
-                {detail.source_ip || "-"} · {new Date(detail.received_at).toLocaleString()} · {detail.body_size} bytes{detail.body_truncated ? " (truncated)" : ""}
+                {detail.source_ip || "-"} · {new Date(detail.received_at).toLocaleString()} · {detail.body_size} bytes · {detail.processing_duration_ms}ms{detail.body_truncated ? " (truncated)" : ""}
               </div>
 
               <div className="flex gap-2 border-b border-gray-200 dark:border-gray-800">
@@ -146,13 +160,36 @@ export default function EndpointDetailPage() {
               </div>
 
               {tab === "body" && (
-                <pre className="bg-gray-900 text-gray-100 rounded-md p-3 overflow-auto text-xs max-h-[50vh]">{detail.body_text || detail.body_base64}</pre>
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex gap-1">
+                      {prettyBody && (
+                        <>
+                          <button className={`btn ${pretty ? "border-blue-600 text-blue-600" : ""}`} onClick={() => setPretty(true)}>Pretty</button>
+                          <button className={`btn ${!pretty ? "border-blue-600 text-blue-600" : ""}`} onClick={() => setPretty(false)}>Raw</button>
+                        </>
+                      )}
+                    </div>
+                    <button className="btn" onClick={() => copyText(rawBody)}>Copy payload</button>
+                  </div>
+                  <pre className="bg-gray-900 text-gray-100 rounded-md p-3 overflow-auto text-xs max-h-[50vh]">{bodyToShow}</pre>
+                </div>
               )}
               {tab === "headers" && (
-                <pre className="bg-gray-900 text-gray-100 rounded-md p-3 overflow-auto text-xs max-h-[50vh]">{JSON.stringify(detail.headers, null, 2)}</pre>
+                <div className="space-y-2">
+                  <div className="flex justify-end">
+                    <button className="btn" onClick={() => copyText(JSON.stringify(detail.headers, null, 2))}>Copy headers</button>
+                  </div>
+                  <pre className="bg-gray-900 text-gray-100 rounded-md p-3 overflow-auto text-xs max-h-[50vh]">{JSON.stringify(detail.headers, null, 2)}</pre>
+                </div>
               )}
               {tab === "query" && (
-                <pre className="bg-gray-900 text-gray-100 rounded-md p-3 overflow-auto text-xs max-h-[50vh]">{JSON.stringify(detail.query_params, null, 2)}</pre>
+                <div className="space-y-2">
+                  <div className="flex justify-end">
+                    <button className="btn" onClick={() => copyText(JSON.stringify(detail.query_params, null, 2))}>Copy query</button>
+                  </div>
+                  <pre className="bg-gray-900 text-gray-100 rounded-md p-3 overflow-auto text-xs max-h-[50vh]">{JSON.stringify(detail.query_params, null, 2)}</pre>
+                </div>
               )}
             </div>
           )}

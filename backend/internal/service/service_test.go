@@ -93,7 +93,8 @@ func (f *fakeRepo) ListEvents(ctx context.Context, endpointID string, limit, off
 func (f *fakeRepo) GetEvent(ctx context.Context, id string) (model.EventDetail, error) {
 	return model.EventDetail{}, errors.New("not found")
 }
-func (f *fakeRepo) DeleteEvent(ctx context.Context, id string) error { return nil }
+func (f *fakeRepo) UpdateEventDuration(ctx context.Context, id string, ms int64) error { return nil }
+func (f *fakeRepo) DeleteEvent(ctx context.Context, id string) error                   { return nil }
 func (f *fakeRepo) DeleteEventsByEndpoint(ctx context.Context, endpointID string) error {
 	delete(f.events, endpointID)
 	return nil

@@ -54,14 +54,15 @@ export default function DashboardPage() {
                 <th className="px-4 py-2">Method</th>
                 <th className="px-4 py-2">Path</th>
                 <th className="px-4 py-2">Size</th>
+                <th className="px-4 py-2">Duration</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
               {isLoading && [0, 1, 2, 3].map((i) => (
-                <tr key={i}><td colSpan={5} className="px-4 py-3"><Skeleton className="h-4" /></td></tr>
+                <tr key={i}><td colSpan={6} className="px-4 py-3"><Skeleton className="h-4" /></td></tr>
               ))}
               {!isLoading && (recent?.items || []).length === 0 && (
-                <tr><td colSpan={5}><EmptyState title="No activity yet" description="Create an endpoint and send a request." /></td></tr>
+                <tr><td colSpan={6}><EmptyState title="No activity yet" description="Create an endpoint and send a request." /></td></tr>
               )}
               {(recent?.items || []).map((e: RecentEvent) => (
                 <tr key={e.id} className="hover:bg-gray-50 dark:hover:bg-gray-800">
@@ -74,6 +75,7 @@ export default function DashboardPage() {
                   <td className="px-4 py-2"><MethodBadge method={e.method} /></td>
                   <td className="px-4 py-2 font-mono text-xs">{e.path}</td>
                   <td className="px-4 py-2 text-xs">{e.body_size}B</td>
+                  <td className="px-4 py-2 text-xs">{e.processing_duration_ms}ms</td>
                 </tr>
               ))}
             </tbody>

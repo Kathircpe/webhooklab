@@ -17,6 +17,9 @@ type Config struct {
 	TrustedProxies     string
 	CORSOrigins        string
 	EventCap           int
+	ReplayTimeout        time.Duration
+	ReplayMaxResponse    int64
+	ReplayAllowPrivate   bool
 }
 
 func Load() Config {
@@ -31,6 +34,9 @@ func Load() Config {
 		TrustedProxies:   getenv("WEBHOOKLAB_TRUSTED_PROXIES", ""),
 		CORSOrigins:      getenv("WEBHOOKLAB_CORS_ORIGINS", "*"),
 		EventCap:         mustInt(getenv("WEBHOOKLAB_EVENT_CAP", "1000")),
+		ReplayTimeout:      mustDuration(getenv("WEBHOOKLAB_REPLAY_TIMEOUT", "10s")),
+		ReplayMaxResponse:  mustInt64(getenv("WEBHOOKLAB_REPLAY_MAX_RESPONSE_BYTES", "1048576")),
+		ReplayAllowPrivate: getenv("WEBHOOKLAB_REPLAY_ALLOW_PRIVATE", "false") == "true",
 	}
 	return c
 }

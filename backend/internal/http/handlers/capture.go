@@ -15,6 +15,7 @@ type CaptureHandler struct {
 }
 
 func (h *CaptureHandler) Handle(w http.ResponseWriter, r *http.Request) {
+	started := time.Now()
 	// path: /w/{slug}/...
 	p := strings.TrimPrefix(r.URL.Path, "/w/")
 	parts := strings.SplitN(p, "/", 2)
@@ -63,6 +64,8 @@ func (h *CaptureHandler) Handle(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	_ = h.Svc.SetEventDuration(r.Context(), id, time.Since(started).Milliseconds())
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]any{"received": true, "event_id": id})
